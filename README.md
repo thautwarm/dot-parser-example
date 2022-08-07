@@ -1,4 +1,4 @@
-## A Dot language implementation with Typed-BNF Julia
+## A Dot parser implementation with Typed-BNF Julia
 
 NOTE: So far the capability of the backend parser generator is not powerful enough to express the dot language. It cannot handle certain ambiguity in the grammar.
 
