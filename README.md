@@ -12,7 +12,7 @@ Install the runtime requirements:
 
 Then open your REPL:
 
-```
+```julia
 julia> include("entry.jl")
 julia> using PrettyPrint
 
