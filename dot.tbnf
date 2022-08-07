@@ -1,0 +1,149 @@
+extern type Graph
+extern type Optional<A>
+extern type NodeId
+extern type Port
+extern type Stmt
+extern type Pair<A, B>
+extern type Sub
+extern type AList
+extern type AttrList
+extern type Subgraph
+
+// 工具函数
+extern var pushList : <A>(xs: list<A>, x: A) -> list<A>
+extern var getStr : token -> str
+extern var unesc : str -> str
+extern var none: <A>() -> Optional<A>
+extern var some: <A>(a: A) -> Optional<A>
+
+
+// AST构造接口
+extern var nodeId2Sub: NodeId -> Sub
+extern var subgraph2Sub: Subgraph -> Sub
+extern var subgraph2Stmt: Subgraph -> Stmt
+extern var pairToStmt : Pair<str, str> -> Stmt
+
+extern var mkPair : <A, B>(a: A, b: B) -> Pair<A, B>
+extern var mkAList : list<Pair<str, str>> -> AList
+extern var mkAttrList : list<AList> -> AttrList
+extern var mkAttrStmt: (str, AttrList) -> Stmt
+extern var mkEdgeStmt: (Sub, list<Pair<str, Sub>>, AttrList) -> Stmt
+extern var mkNodeStmt : (NodeId, AttrList) -> Stmt
+extern var mkPort: (Optional<str>, Optional<str>) -> Port
+extern var mkNodeId: (str, Optional<Port>) -> NodeId
+extern var mkGraph : (isStrict: bool, isDirected: bool, id: Optional<str>, stmt: list<Stmt>) -> Graph
+extern var mkSubgraph : (name: Optional<str>, stmts: list<Stmt>) -> Subgraph
+
+listof(x) : x           { [$1] }
+          | listof(x) x { pushList($1, $2) }
+
+opt-bool(succ) :      { false }
+               | succ { true }
+
+opt-list(list) :      { [] }
+               | list { $1 }
+
+opt(succ) :      { none() }
+          | succ { some($1) }
+
+discard(a) : a { 0 }
+
+opt-discard(a) : discard(a)  { 0 }
+               |             { 0 }
+
+or(a, b) : a { $1 }
+         | b { $1 }
+
+or-discard(a, b) : or(discard(a), discard(b)) { $1 }
+
+or-discard-opt(a, b) : opt(or-discard(a, b)) { $1 }
+
+is-graph-directed : "graph"   { false }
+                  | "digraph" { true }
+
+// 必须要有一个start
+start  : graph { $1 }
+
+graph : opt-bool("static") is-graph-directed opt(id) "{" stmt_list "}"
+        { mkGraph($1, $2, $3, $5) }
+
+
+stmt_list_part	: stmt opt-discard(";")  { $1 }
+stmt_list_nonempty : listof(stmt_list_part) { $1 }
+stmt_list : opt-list(stmt_list_nonempty) { $1 }
+
+stmt : node_id opt-list(attr_list) { mkNodeStmt($1, mkAttrList($2)) }
+     // | edge_stmt  { $1 }
+     | node_id edgeRHS opt-list(attr_list)
+          { mkEdgeStmt(nodeId2Sub($1), $2, mkAttrList($3)) }
+     | subgraph edgeRHS opt-list(attr_list)
+          { mkEdgeStmt(subgraph2Sub($1), $2, mkAttrList($3)) }
+     | attr_stmt  { $1 }
+     // | id '=' id  { pairToStmt(mkPair($1, $3)) }
+     | subgraph      { subgraph2Stmt($1) }
+     
+
+attr_stmt_head : "graph" { "graph" }
+               | "node"  { "node" }
+               | "edge"  { "edge" }
+attr_stmt	: attr_stmt_head attr_list { mkAttrStmt($1, mkAttrList($2)) }
+
+// list<AList>
+attr_list-part : '[' opt-list(a_list) ']' { mkAList($2) }
+attr_list : listof(attr_list-part) { $1 }
+
+// list<Pair<str, str>>
+a_list-part : id '=' id or-discard-opt(';', ',') { mkPair($1, $3) }
+a_list : listof(a_list-part) { $1 }
+
+
+sub : node_id { nodeId2Sub($1) }
+    | subgraph { subgraph2Sub($1) }
+
+edge_stmt	: sub edgeRHS opt-list(attr_list) 
+            { mkEdgeStmt($1, $2, mkAttrList($3)) }
+
+edgeop : "->" { "->" }
+       | "--" { "--" }
+
+// edgeRHS : list<Pair<str, sub>>
+edgeRHS-part : edgeop sub { mkPair($1, $2) }
+edgeRHS : listof(edgeRHS-part) { $1 }
+
+node_stmt : node_id opt-list(attr_list) { mkNodeStmt($1, mkAttrList($2)) }
+
+node_id : id opt(port) { mkNodeId($1, $2) }
+
+port : ":" id opt(port-tail) { mkPort(some($2), $3) }
+     | port-tail             { mkPort(none(), some($1)) }
+
+port-tail : ":" compass_pt { $2 }
+
+subgraph-head : discard(subgraph) opt(id) { $2 }
+              | { none() }
+
+subgraph : subgraph-head "{" stmt_list "}" { mkSubgraph($1, $3) }
+
+
+compass_pt : "n"  { "n" }
+           | "e"  { "e" }
+           | "se" { "se" }
+           | "s"  { "s" }
+           | "sw" { "sw" }
+           | "w"  { "w" }
+           | "nw" { "nw" }
+           | "c"  { "c" }
+           | "_"    { "_" }
+
+id : <ID> { getStr($1) }
+   | <NUM> { getStr($1) }
+   | <STR_LIT> { unesc(getStr($1)) }
+
+IDLEADING = [a-z] | [A-Z] | [\u0200-\u0377]  | "_";
+IDFOLLOW = IDLEADING | [0-9];
+ID = IDLEADING IDFOLLOW*;
+NUM = "-"? ("." [0-9]+ | [0-9]+ ("." [0-9]*)?);
+STR_LIT = "\"" ("\\" _ | !"\"")* "\"";
+SPACE = " " | "\t" | "\r" | "\n";
+
+ignore SPACE
